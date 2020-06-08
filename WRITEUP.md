@@ -21,7 +21,7 @@ Some of the potential reasons for handling custom layers are performing layer op
 
 I have performed inference with 2 models - *faster_rcnn_inception_v2_coco_2018_01_28* and *ssd_mobilenet_v2_coco_2018_03_29*
 
-*faster_rcnn_inception_v2_coco_2018_01_28* - pre-conversation - 142MB,  post- 50.9 MB
+*faster_rcnn_inception_v2_coco_2018_01_28* - pre-conversation - 142MB,  post- 50.9 MB   
 *ssd_mobilenet_v2_coco_2018_03_29* - pre-conversation- 179MB,   post- 64.3 MB
 
 Observed, inference time of both faster_rcnn_inception_v2_coco_2018_01_28 and ssd_mobilenet_v2_coco_2018_03_29 are almost same in CPU mode. 

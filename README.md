@@ -4,7 +4,6 @@
 |-----------------------|---------------|
 | Programming Language: |  Python 3.5 or 3.6 |
 
-![people-counter-python](./images/people-counter-result-1.png)  
 ![people-counter-python](./images/people-counter-result-2.png)
 
 ## What it Does
