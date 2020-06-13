@@ -1,3 +1,4 @@
+
 # Project Write-Up
 
 You can use this document as a template for providing your project write-up. However, if you
@@ -14,29 +15,21 @@ Some of the potential reasons for handling custom layers are performing layer op
 **How to add custom layers**
  - depends on original model framework
  - Both caffe & Tensorflow - register as extensions
- - cafee-only: use caffee to calcualte output shape
+ - cafee-only: use caffee to calculate output shape
  - TensorFlow-only: Replace subgraph with another
 
 ## Comparing Model Performance
 
-I have performed inference with 2 models - *faster_rcnn_inception_v2_coco_2018_01_28* and *ssd_mobilenet_v2_coco_2018_03_29*
+I have performed inference with 3 models - *ssd_mobilenet_v2_coco_2018_03_29*, *ssdlite_mobilenet_v2_coco_2018_05_09* and *faster_rcnn_inception_v2_coco_2018_01_28*
 
-*faster_rcnn_inception_v2_coco_2018_01_28* - pre-conversation - 142MB,  post- 50.9 MB   
-*ssd_mobilenet_v2_coco_2018_03_29* - pre-conversation- 179MB,   post- 64.3 MB
+**COCO Models**
+*ssd_mobilenet_v2_coco_2018_03_29* - pre-conversation- *179 MB*,   post- *64.3 MB* , *380-470 ms* 
+*ssdlite_mobilenet_v2_coco_2018_05_09* - pre-conversation- *60 MB*,   post- *18 MB* , *610-710 ms*
+*faster_rcnn_inception_v2_coco_2018_01_28* - pre-conversation - *142 MB*,  post- *50.9 MB* , *700-800 ms* 
 
-Observed, inference time of both faster_rcnn_inception_v2_coco_2018_01_28 and ssd_mobilenet_v2_coco_2018_03_29 are almost same in CPU mode. 
+**Intel pre-trained Models** 
+*person-detection-retail-0013* - size *50.9 MB* , *610-730 ms* 
 
-**faster_rcnn_inception_v2_coco_2018_01_28**
-
-    wget http://download.tensorflow.org/models/object_detection/faster_rcnn_inception_v2_coco_2018_01_28.tar.gz
-    tar -xvf faster_rcnn_inception_v2_coco_2018_01_28.tar.gz
-    python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config faster_rcnn_inception_v2_coco_2018_01_28/pipeline.config --reverse_input_channels --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/faster_rcnn_support.json --output_dir IR/faster_rcnn_inception_v2_coco_2018_01_28
-
-**ssd_mobilenet_v2_coco_2018_03_29**
-
-    wget http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz
-    tar -xvf ssd_mobilenet_v2_coco_2018_03_29.tar.gz
-    /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model=ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.pb --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --tensorflow_object_detection_api_pipeline_config ssd_mobilenet_v2_coco_2018_03_29/pipeline.config --reverse_input_channels --output_dir IR/ssd_mobilenet_v2_coco_2018_03_29
 
 ## Assess Model Use Cases
 
@@ -51,34 +44,52 @@ Some of the potential use cases of the people counter app are
 
 ## Assess Effects on End User Needs
 
-Lighting, model accuracy, and camera focal length/image size have different effects on a
+Yes. Lighting, model accuracy, and camera focal length/image size have different effects on a
 deployed edge model. The potential effects of each of these are as follows...
 
-- Lighting, focal length effects accuracy. Need to do pre-processing the frame before input to inference engine
-- Image size must compatible with model input size. Must resize the image before inference
+- lighting - introduced deep shadow, leads skew result
+- model accuracy - as seen, accuracy effects total count and average time due to fluctuation of detection
+- camera focal length - leads blurring image 
+- image size - too low image size leads low resolution 
+- few others - Noise, angles
+
+Must handle these scenarios in input before feed into inference by pre-processing like rank filtering, color correction, sharpen filter, resize image etc. 
 
 ## Model Research
 
-[This heading is only required if a suitable model was not found after trying out at least three
-different models. However, you may also use this heading to detail how you converted 
-a successful model.]
+Some times, model misses the detection of the people on few frames. Few ways to address this problem:
+ - choose high accuracy model 
+ - higher hardware 
+ - train the model with respective data set 
+ - setting frame threshold to handle fluctuation frames 
+ - work with probability threshold for detection filtering 
+ - implement advanced strategy like derive count by tracking coordinate of people in and out 
 
 In investigating potential people counter models, I tried each of the following three models:
 
-- Model 1: [Name]
-  - [Model Source]
-  - I converted the model to an Intermediate Representation with the following arguments...
-  - The model was insufficient for the app because...
-  - I tried to improve the model for the app by...
-  
-- Model 2: [Name]
-  - [Model Source]
-  - I converted the model to an Intermediate Representation with the following arguments...
-  - The model was insufficient for the app because...
-  - I tried to improve the model for the app by...
+**person-detection-retail-0013**
 
-- Model 3: [Name]
-  - [Model Source]
-  - I converted the model to an Intermediate Representation with the following arguments...
-  - The model was insufficient for the app because...
-  - I tried to improve the model for the app by...
+    /opt/intel/openvino/deployment_tools/tools/model_downloader/downloader.py --name person-detection-retail-0013 -o models/IR/pd-retail-0013 
+    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/IR/pd-retail-0013/intel/person-detection-retail-0013/FP16/person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+    
+**ssd_mobilenet_v2_coco_2018_03_29**
+
+    wget http://download.tensorflow.org/models/object_detection/ssd_mobilenet_v2_coco_2018_03_29.tar.gz
+    tar -xvf ssd_mobilenet_v2_coco_2018_03_29.tar.gz
+    /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model=ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.pb --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --tensorflow_object_detection_api_pipeline_config ssd_mobilenet_v2_coco_2018_03_29/pipeline.config --reverse_input_channels --output_dir IR/ssd_mobilenet_v2_coco_2018_03_29  
+    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/IR/ssd_mobilenet_v2_coco_2018_03_29/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+
+
+**ssdlite_mobilenet_v2_coco_2018_05_09**
+
+    wget http://download.tensorflow.org/models/object_detection/ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz  
+    tar -xvf ssdlite_mobilenet_v2_coco_2018_05_09.tar.gz  
+    /opt/intel/openvino/deployment_tools/model_optimizer/mo_tf.py --input_model=models/ssdlite_mobilenet_v2_coco_2018_05_09/frozen_inference_graph.pb --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/ssd_v2_support.json --tensorflow_object_detection_api_pipeline_config models/ssdlite_mobilenet_v2_coco_2018_05_09/pipeline.config --reverse_input_channels --output_dir models/IR/ssdlite_mobilenet_v2_coco_2018_05_09  
+    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/IR/ssdlite_mobilenet_v2_coco_2018_05_09/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+
+**faster_rcnn_inception_v2_coco_2018_01_28**
+
+    wget http://download.tensorflow.org/models/object_detection/faster_rcnn_inception_v2_coco_2018_01_28.tar.gz
+    tar -xvf faster_rcnn_inception_v2_coco_2018_01_28.tar.gz
+    python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config faster_rcnn_inception_v2_coco_2018_01_28/pipeline.config --reverse_input_channels --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/faster_rcnn_support.json --output_dir IR/faster_rcnn_inception_v2_coco_2018_01_28  
+    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m models/IR/faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.6 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm

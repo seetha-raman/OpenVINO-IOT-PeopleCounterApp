@@ -91,6 +91,7 @@ def infer_on_stream(args, client):
 
     ### TODO: Load the model through `infer_network` ###
     infer_network.load_model(model, cpu_extension, device)
+    n, c, model_h, model_w = infer_network.get_input_shape()
 
     ### TODO: Handle the input stream ###
     if args.input == 'CAM':
@@ -102,99 +103,95 @@ def infer_on_stream(args, client):
         assert os.path.isfile(args.input), "file doesn't exist"
 
     ### TODO: Handle the input stream ###
-    capture  = cv2.VideoCapture(input_stream)
-    capture .open(input_stream)
-    w = int(capture .get(3))
-    h = int(capture .get(4))
-
-    network_shape = infer_network.get_input_shape()
-    in_shape = network_shape['image_tensor']
+    capture = cv2.VideoCapture(input_stream)
+    capture.open(input_stream)
+    source_w = capture.get(3)
+    source_h = capture.get(4)
 
     request_id = 0
 
-    duration = 0
-    prev_duration = 0
+    start_time = 0
+    last_count = 0
+    total_count = 0
+    current_count = 0
 
-    counter = 0
-    prev_counter = 0
-    report_counter = 0
-    total_counter = 0
-
+    # Adjust frame threshold based on model performance
+    FRAME_THRESHOLD = 50
+    counter = FRAME_THRESHOLD
+    frame_count_duration = 0
     ### TODO: Loop until stream is over ###
-    while capture .isOpened():
+    while capture.isOpened():
         ### TODO: Read from the video capture ###
-        flag, frame = capture .read()
+        flag, frame = capture.read()
         if not flag:
             break
 
+        frame_count_duration += 1
         ### TODO: Pre-process the image as needed ###
-        image = cv2.resize(frame, (in_shape[3], in_shape[2]))
+        image = cv2.resize(frame, (model_w, model_h))
         preproc_image = image.transpose((2, 0, 1))
-        preproc_image = preproc_image.reshape(1, *preproc_image.shape)
+        preproc_image = preproc_image.reshape(n, c, model_h, model_w)
 
         ### TODO: Start asynchronous inference for specified request ###
-        net_input = {'image_tensor': preproc_image, 'image_info': preproc_image.shape[1:]}
-        infer_network.exec_net(request_id, net_input)
-
-        retport_duration = None
+        infer_network.exec_net(request_id, preproc_image)
 
         ### TODO: Wait for the result ###
         if infer_network.wait() == 0:
 
             ### TODO: Get the results of the inference request ###
+            infer_start = time.time()
             network_output = infer_network.get_output()
 
             ### TODO: Extract any desired stats from the results ###
-            pointer = 0
-            probs = network_output[0, 0, :, 2]
-            for i, p in enumerate(probs):
-                if p > prob_threshold:
-                    pointer += 1
-                    box = network_output[0, 0, i, 3:]
-                    p1 = (int(box[0] * w), int(box[1] * h))
-                    p2 = (int(box[2] * w), int(box[3] * h))
-                    frame = cv2.rectangle(frame, p1, p2, (0, 255, 0), 3)
+            out_count = 0
+            for out in network_output[0][0]:
+                infer_time = time.time() - infer_start
+                if out[2] > prob_threshold:
+                    xymin = (int(out[3] * source_w), int(out[4] * source_h))
+                    xymax = (int(out[5] * source_w), int(out[6] * source_h))
+                    cv2.rectangle(frame, xymin, xymax, (0, 255, 0), 2)
+                    out_count += 1
 
-            if pointer != counter:
-                prev_counter = counter
-                counter = pointer
-                if duration >= 3:
-                    prev_duration = duration
-                    duration = 0
-                else:
-                    duration = prev_duration + duration
-                    prev_duration = 0
+            # print inference time in frame
+            infer_time_message = "Inference time: {:.3f}ms".format(infer_time * 1000)
+            cv2.putText(frame, infer_time_message, (15, 15),
+                        cv2.FONT_HERSHEY_COMPLEX, 0.5, (200, 10, 10), 1)
+
+            #  check counter and frame threshold for handling fluctuation frames
+            if last_count != out_count and counter < 0:
+                current_count = out_count
+                counter = FRAME_THRESHOLD
             else:
-                duration += 1
-                if duration >= 3:
-                    report_counter = counter
-                    if duration == 3 and counter > prev_counter:
-                        total_counter += counter - prev_counter
-                    elif duration == 3 and counter < prev_counter:
-                        retport_duration = int((prev_duration / 10.0) * 1000)
+                counter -= 1
 
             ### TODO: Calculate and send relevant information on ###
             ### current_count, total_count and duration to the MQTT server ###
             ### Topic "person": keys of "count" and "total" ###
             ### Topic "person/duration": key of "duration" ###
-            client.publish('person',
-                           payload=json.dumps({
-                               'count': report_counter, 'total': total_counter}),
-                           qos=0, retain=False)
-            if retport_duration is not None:
-                client.publish('person/duration',
-                               payload=json.dumps({'duration': retport_duration}),
-                               qos=0, retain=False)
+            # new person enters in video
+            if current_count > last_count:
+                start_time = time.time()
+                total_count += current_count - last_count
+                client.publish("person", json.dumps({"total": total_count}))
+            # calcualte duration
+            elif current_count < last_count:
+                # duration = int(time.time() - start_time)
+                # total_frame = capture.get(cv2.CAP_PROP_FRAME_COUNT)
+                fps = capture.get(cv2.CAP_PROP_FPS)
+                duration = frame_count_duration / fps
+                client.publish("person/duration",
+                               json.dumps({"duration": duration}))
+                frame_count_duration = 0
+
+            client.publish("person", json.dumps({"count": current_count}))
+            last_count = current_count
 
         ### TODO: Send the frame to the FFMPEG server ###
-        #  Resize the frame
-        frame = cv2.resize(frame, (768, 432))
         sys.stdout.buffer.write(frame)
         sys.stdout.flush()
 
-    capture .release()
+    capture.release()
     cv2.destroyAllWindows()
-
     infer_network.clean()
 
 

@@ -49,12 +49,16 @@ class Network:
 
         self.core = IECore()
         self.network = IENetwork(model=model_xml, weights=model_bin)
+
         ### TODO: Check for supported layers ###
-        if not self.is_all_layers_supported(device):
+        ### TODO: Add any necessary extensions ###
+        layers_supported = self.core.query_network(self.network, device_name=device)
+        layers = self.network.layers.keys()
+        if not all(l in layers_supported for l in layers):
             self.core.add_extension(cpu_extension, device)
 
+        # Populate ienetwork, input & output blog for given model
         self.ienetwork_exec = self.core.load_network(self.network, device)
-        # Get the input layer
         self.input_blob = next(iter(self.network.inputs))
         self.out_blob = next(iter(self.network.outputs))
 
@@ -64,17 +68,14 @@ class Network:
 
     def get_input_shape(self):
         ### TODO: Return the shape of the input layer ###
-        input_shape_map = {}
-        for inp in self.network.inputs:
-            input_shape_map[inp] = self.network.inputs[inp].shape
-        return input_shape_map
+        return self.network.inputs[self.input_blob].shape
 
-    def exec_net(self, request_id, net_input):
+    def exec_net(self, request_id, image):
         ### TODO: Start an asynchronous request ###
         ### TODO: Return any necessary information ###
         self.infer_request_handle = self.ienetwork_exec.start_async(
             request_id,
-            inputs=net_input)
+            inputs={self.input_blob: image})
 
         return self.infer_request_handle
 
@@ -88,18 +89,6 @@ class Network:
         ### TODO: Extract and return the output results
         ### Note: You may need to update the function parameters. ###
         return self.infer_request_handle.outputs[self.out_blob]
-
-    def is_all_layers_supported(self, device):
-        layers_supported = self.core.query_network(self.network, device_name=device)
-        layers = self.network.layers.keys()
-
-        all_supported = True
-        for l in layers:
-            if l not in layers_supported:
-                all_supported = False
-                return all_supported
-
-        return all_supported
 
     def clean(self):
         del self.ienetwork_exec
